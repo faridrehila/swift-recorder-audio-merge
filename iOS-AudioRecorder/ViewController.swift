@@ -16,12 +16,16 @@ class ViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlayerDe
     
     @IBOutlet weak var record: UIButton!
     @IBOutlet weak var play: UIButton!
+    @IBOutlet weak var infoMsg: UILabel!
     
     //AVAudioRecorder provides audio recording capability.
     var audioRecorder: AVAudioRecorder!
     //AVAudioPlayer plays back audio from file or memory.
     var audioPlayer: AVAudioPlayer!
-    var fileName : String = "audio.m4a"
+    var fileName : String = "audio" + String(Int.random(in: 0..<1000)) + ".m4a"
+    var recordingTrack: String = ""
+    var playerTrack: String = ""
+    var isFirstTime = true
     
     
     override func viewDidLoad() {
@@ -43,9 +47,13 @@ class ViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlayerDe
     }
 
     func recordingSetup() {
-        let recordSetting = [AVFormatIDKey : kAudioFormatAppleLossless, AVEncoderAudioQualityKey : AVAudioQuality.max.rawValue, AVEncoderBitRateKey : 32000, AVNumberOfChannelsKey : 2, AVSampleRateKey : 44100.2] as [String: Any] //Why??
+        let recordSetting = [AVFormatIDKey : kAudioFormatAppleLossless, AVEncoderAudioQualityKey : AVAudioQuality.max.rawValue, AVEncoderBitRateKey : 32000, AVNumberOfChannelsKey : 2, AVSampleRateKey : 44100.2] as [String: Any]
         // Append the filename to path
-        let audioFileName = getDocumentsDirector().appendingPathComponent(fileName)
+        if (isFirstTime) {
+            recordingTrack = fileName
+            playerTrack = fileName
+        }
+        let audioFileName = getDocumentsDirector().appendingPathComponent(recordingTrack)
         
         do {
             audioRecorder = try AVAudioRecorder(url: audioFileName, settings: recordSetting)
@@ -57,14 +65,14 @@ class ViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlayerDe
     }
     
     func playerSetup() {
-        let audioFileName = getDocumentsDirector().appendingPathComponent(fileName)
+        let audioFileName = getDocumentsDirector().appendingPathComponent(playerTrack)
         
         do {
             // Whats going on here? Defining a constant does not resolve the indentifier in the function call
-            soundPlayer = try AVAudioPlayer(contentsOf: audioFileName)
-            soundPlayer.delegate = self
-            soundPlayer.prepareToPlay()
-            soundPlayer.volume = 1
+            audioPlayer = try AVAudioPlayer(contentsOf: audioFileName)
+            audioPlayer.delegate = self
+            audioPlayer.prepareToPlay()
+            audioPlayer.volume = 1
     
         } catch {
             print(error)
@@ -91,9 +99,108 @@ class ViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlayerDe
             
         } else {
             audioRecorder.stop()
+            
+            if (isFirstTime) {
+                isFirstTime = false
+                recordingTrack = "recording" + String(Int.random(in: 0..<1000)) + ".m4a"
+                recordingSetup()
+            } else {
+                self.infoMsg.text = "Merging...."
+                mergeTracks()
+            }
+            
             record.setTitle("Record", for: .normal)
             play.isEnabled = false
         }
+    }
+    
+    func mergeTracks() {
+        do {
+          let mainTrackFileUrl = getDocumentsDirector().appendingPathComponent(fileName)
+          // let mainTrackAvAsset = AVURLAsset.init(url: mainTrackFileUrl, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+          let mainTrackAvAsset = AVURLAsset.init(url: mainTrackFileUrl)
+        
+          let branchTrackFileUrl = getDocumentsDirector().appendingPathComponent(recordingTrack)
+          // let branchTrackAvAsset = AVURLAsset.init(url: branchTrackFileUrl, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+          let branchTrackAvAsset = AVURLAsset.init(url: branchTrackFileUrl)
+        
+          var tracksChunks = [mainTrackAvAsset, branchTrackAvAsset]
+          let composition = AVMutableComposition()
+
+          /* `CMTimeRange` to store total duration and know when to
+             insert subsequent assets.
+          */
+          var insertAt = CMTimeRange(start: kCMTimeZero, end: kCMTimeZero)
+          
+          repeat {
+              let asset = tracksChunks.removeFirst()
+
+              let assetTimeRange =
+                CMTimeRange(start: kCMTimeZero, end: asset.duration)
+
+              do {
+                  try composition.insertTimeRange(assetTimeRange,
+                  of: asset,
+                  at: insertAt.end)
+              } catch {
+                  NSLog("Unable to compose asset track.")
+              }
+
+              let nextDuration = insertAt.duration + assetTimeRange.duration
+            insertAt = CMTimeRange(start: kCMTimeZero, duration: nextDuration)
+            
+          } while tracksChunks.count != 0
+          
+          let exportSession =
+              AVAssetExportSession(
+                asset:composition,
+                presetName:AVAssetExportPresetAppleM4A)
+
+          exportSession?.outputFileType = AVFileType.m4a
+            playerTrack = "new_audio_" + String(Int.random(in: 0..<1000)) + ".m4a"
+          exportSession?.outputURL = getDocumentsDirector().appendingPathComponent(playerTrack)
+          // exportSession?.metadata = ...
+
+           exportSession?.exportAsynchronously {
+              switch exportSession?.status {
+                case .unknown?: break
+                case .waiting?: break
+                case .exporting?:
+                  print("Exporting...")
+                  break
+                case .completed?:
+                  print("Completed!")
+                  self.infoMsg.text = "Merge completed"
+                  // Reseting the recorder for further tests
+                  self.fileName = "audio" + String(Int.random(in: 0..<1000)) + ".m4a"
+                  self.recordingTrack = self.fileName
+                  
+                  /* Clean up (delete partial recordings, etc.) */
+                  // DELETING main track file
+                  
+                  // self.deleteAudio(path: mainTrackPath)
+                  // DELETING branch track file
+                  // self.deleteAudio(path: branchTrackPath)
+                  // resolve(["state": exportSession?.outputURL])
+                  break
+                case .failed?:
+                  print("Failed!")
+                  break
+                case .cancelled?: break
+                case .none: break
+              }
+          }
+        }
+    }
+    
+    func deleteAudio(path: String) {
+      let fileManager = FileManager.default
+      do {
+          try fileManager.removeItem(atPath: path)
+          print("Ok audio deleted")
+      } catch {
+          print("Could not delete the file: \(error)")
+      }
     }
     
     
@@ -102,10 +209,10 @@ class ViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlayerDe
             play.setTitle("Stop", for: .normal)
             record.isEnabled = false
             playerSetup()
-            soundPlayer.start()
+            audioPlayer.play()
         } else {
             playerSetup()
-            soundPlayer.stop()
+            audioPlayer.stop()
             play.setTitle("Play", for: .normal)
         }
     }
