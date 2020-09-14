@@ -59,19 +59,21 @@ class ViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlayerDe
             audioRecorder = try AVAudioRecorder(url: audioFileName, settings: recordSetting)
             audioRecorder.delegate = self
             audioRecorder.prepareToRecord()
+            print("Recorder is ready")
         } catch {
             print(error)
         }
     }
     
     func playerSetup() {
-        let audioFileName = getDocumentsDirector().appendingPathComponent(playerTrack)
+        let audioFileName = getDocumentsDirector().appendingPathComponent(self.playerTrack)
         
         do {
             // Whats going on here? Defining a constant does not resolve the indentifier in the function call
             audioPlayer = try AVAudioPlayer(contentsOf: audioFileName)
             audioPlayer.delegate = self
             audioPlayer.prepareToPlay()
+            print("Player is ready")
             audioPlayer.volume = 1
     
         } catch {
@@ -85,7 +87,7 @@ class ViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlayerDe
     
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         play.isEnabled = true
-        play.setTitle("Playing", for : .normal)
+        record.setTitle("Record", for : .normal)
     }
     
     
@@ -124,32 +126,16 @@ class ViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlayerDe
           // let branchTrackAvAsset = AVURLAsset.init(url: branchTrackFileUrl, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
           let branchTrackAvAsset = AVURLAsset.init(url: branchTrackFileUrl)
         
-          var tracksChunks = [mainTrackAvAsset, branchTrackAvAsset]
           let composition = AVMutableComposition()
-
-          /* `CMTimeRange` to store total duration and know when to
-             insert subsequent assets.
-          */
-          var insertAt = CMTimeRange(start: kCMTimeZero, end: kCMTimeZero)
           
-          repeat {
-              let asset = tracksChunks.removeFirst()
-
-              let assetTimeRange =
-                CMTimeRange(start: kCMTimeZero, end: asset.duration)
-
-              do {
-                  try composition.insertTimeRange(assetTimeRange,
-                  of: asset,
-                  at: insertAt.end)
-              } catch {
-                  NSLog("Unable to compose asset track.")
-              }
-
-              let nextDuration = insertAt.duration + assetTimeRange.duration
-            insertAt = CMTimeRange(start: kCMTimeZero, duration: nextDuration)
-            
-          } while tracksChunks.count != 0
+          let assetTimeRange = CMTimeRange(start: kCMTimeZero, duration: mainTrackAvAsset.duration)
+          try composition.insertTimeRange(assetTimeRange,
+          of: mainTrackAvAsset,
+          at: kCMTimeZero)
+            // APPENDING
+            let branchTimeRange = CMTimeRange(start: kCMTimeZero, duration: branchTrackAvAsset.duration)
+            try composition.insertTimeRange(branchTimeRange, of: branchTrackAvAsset, at: mainTrackAvAsset.duration)
+          
           
           let exportSession =
               AVAssetExportSession(
@@ -157,15 +143,16 @@ class ViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlayerDe
                 presetName:AVAssetExportPresetAppleM4A)
 
           exportSession?.outputFileType = AVFileType.m4a
-            playerTrack = "new_audio_" + String(Int.random(in: 0..<1000)) + ".m4a"
-          exportSession?.outputURL = getDocumentsDirector().appendingPathComponent(playerTrack)
+            self.playerTrack = "new_audio_" + String(Int.random(in: 0..<1000)) + ".m4a"
+            exportSession?.outputURL = getDocumentsDirector().appendingPathComponent(self.playerTrack)
           // exportSession?.metadata = ...
 
            exportSession?.exportAsynchronously {
               switch exportSession?.status {
                 case .unknown?: break
                 case .waiting?: break
-                case .exporting?:
+  
+              case .exporting?:
                   print("Exporting...")
                   break
                 case .completed?:
@@ -190,6 +177,8 @@ class ViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlayerDe
                 case .none: break
               }
           }
+        } catch {
+            print("Error")
         }
     }
     
